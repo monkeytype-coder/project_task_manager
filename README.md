@@ -125,7 +125,3 @@ project_task_manager/                 # Скриншоты и изображен
 
 - Telegram: [@trinitycult](https://t.me/trinitycult)
 - Email: efremova.yuliav@gmail.com
-
----
-
-*Последнее обновление: 2024 год*
