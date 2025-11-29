@@ -121,7 +121,7 @@ project_task_manager/                 # Скриншоты и изображен
 └── 📄 tasks_bot.db           # База данных SQLite (создается автоматически)
 ```
 
-# Контакты
+## 📁 Контакты
 
 - Telegram: [@trinitycult](https://t.me/trinitycult)
 - Email: efremova.yuliav@gmail.com
