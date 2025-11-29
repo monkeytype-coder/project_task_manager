@@ -117,7 +117,7 @@ project_task_manager/                 # Скриншоты и изображен
 ├── 📄 requirements.txt        # Зависимости Python
 ├── 📄 README.md              # Документация
 ├── 📄 tgbot.py        # Основной файл Telegram бота
-├── 📄 admin.py         # Десктопное приложение
+├── 📄 admin_panel.py         # Десктопное приложение
 └── 📄 tasks_bot.db           # База данных SQLite (создается автоматически)
 ```
 
