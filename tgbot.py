@@ -603,18 +603,16 @@ def my_tasks_handler(call):
         reply_markup=kb
     )
 
+
 @bot.callback_query_handler(func=lambda c: c.data.startswith("task_"))
 def task_detail_handler(call):
     try:
-        task_id = int(call.data.split("_")[1])
+        task_id = int(call.data.split("_")[-1])
         user_id = call.from_user.id
         
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            SELECT task_text, is_done, priority, deadline, team_id 
-            FROM tasks WHERE task_id = ?
-        ''', (task_id,))
+        cursor.execute('SELECT task_text, is_done, priority, deadline, team_id FROM tasks WHERE task_id = ?', (task_id,))
         task = cursor.fetchone()
         conn.close()
         
@@ -626,38 +624,21 @@ def task_detail_handler(call):
         status = "✅ Выполнена" if is_done else "🔘 В процессе"
         priority_text = ["Высокий", "Средний", "Низкий"][priority - 1] if 1 <= priority <= 3 else "Обычный"
         
-        text = f"""
-📋 *Задача #{task_id}*
-
-{task_text}
-
-*Статус:* {status}
-*Приоритет:* {priority_text}
-*Дедлайн:* {deadline or "Не установлен"}
-        """
+        text = f"📋 *Задача #{task_id}*\n\n{task_text}\n\n*Статус:* {status}\n*Приоритет:* {priority_text}\n*Дедлайн:* {deadline or 'Не установлен'}"
         
         kb = types.InlineKeyboardMarkup(row_width=2)
-        
         if not is_done:
             kb.add(types.InlineKeyboardButton("✅ Выполнить", callback_data=f"complete_{task_id}"))
-        
         kb.add(types.InlineKeyboardButton("🗑 Удалить", callback_data=f"delete_{task_id}"))
         
-        if team_id:
-            kb.add(types.InlineKeyboardButton("⬅ Назад", callback_data=f"team_tasks_{team_id}"))
-        else:
-            kb.add(types.InlineKeyboardButton("⬅ Назад", callback_data="my_tasks"))
+        # Динамически определяем кнопку назад
+        back_cb = f"team_tasks_{team_id}" if team_id else "my_tasks"
+        kb.add(types.InlineKeyboardButton("⬅ Назад", callback_data=back_cb))
         
-        bot.edit_message_text(
-            text,
-            chat_id=call.message.chat.id,
-            message_id=call.message.id,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-        
+        bot.edit_message_text(text, call.message.chat.id, call.message.id, parse_mode="Markdown", reply_markup=kb)
     except Exception as e:
         bot.answer_callback_query(call.id, f"Ошибка: {str(e)}")
+
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("complete_"))
 def complete_task_handler(call):
@@ -936,117 +917,75 @@ def process_team_task(msg):
             reply_markup=main_menu(user_id)
         )
 
+
 @bot.callback_query_handler(func=lambda c: c.data.startswith("team_tasks_"))
 def team_tasks_handler(call):
     try:
-        team_id = int(call.data.split("_")[2])
+        # Было: split("_")[2] -> выдавало ошибку 'tasks'
+        team_id = int(call.data.split("_")[-1]) 
         tasks = get_team_tasks(team_id)
-        
         team_info = get_team_info(team_id)
+        
         if not team_info:
             bot.answer_callback_query(call.id, "Команда не найдена")
             return
-        
+
+        text = f"🏢 *{team_info['name']}*\n\n📋 *Задачи команды:*\n\n"
         if not tasks:
-            text = f"🏢 *{team_info['name']}*\n\n📭 В команде пока нет задач"
+            text += "📭 В команде пока нет задач"
         else:
-            text = f"🏢 *{team_info['name']}*\n\n📋 *Задачи команды:*\n\n"
-            for idx, task in enumerate(tasks[:15], 1):  # Показываем первые 15
+            for idx, task in enumerate(tasks[:15], 1):
                 status = "✅" if task[2] else "🔘"
-                priority_emoji = ["🔴", "🟡", "🟢"][task[3] - 1] if 1 <= task[3] <= 3 else "⚪"
-                author = f"(@{task[7]})" if task[7] else f"({task[8]})"
-                deadline = f" | 📅 {task[4]}" if task[4] else ""
-                text += f"{idx}. {status} {priority_emoji} {task[1][:40]} {author}{deadline}\n"
-            
-            if len(tasks) > 15:
-                text += f"\n... и еще {len(tasks) - 15} задач"
+                text += f"{idx}. {status} {task[1][:40]}\n"
         
         kb = types.InlineKeyboardMarkup(row_width=2)
         kb.add(types.InlineKeyboardButton("➕ Добавить задачу", callback_data=f"add_team_task_{team_id}"))
         kb.add(types.InlineKeyboardButton("⬅ Назад", callback_data=f"team_{team_id}"))
         
-        bot.edit_message_text(
-            text,
-            chat_id=call.message.chat.id,
-            message_id=call.message.id,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-    except:
+        bot.edit_message_text(text, call.message.chat.id, call.message.id, parse_mode="Markdown", reply_markup=kb)
+    except Exception as e:
         bot.answer_callback_query(call.id, "Ошибка загрузки задач")
+
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("team_members_"))
 def team_members_handler(call):
     try:
-        team_id = int(call.data.split("_")[2])
+        # Исправлено извлечение ID
+        team_id = int(call.data.split("_")[-1])
         members = get_team_members(team_id)
-        
         team_info = get_team_info(team_id)
-        if not team_info:
-            bot.answer_callback_query(call.id, "Команда не найдена")
-            return
         
         text = f"🏢 *{team_info['name']}*\n\n👥 *Участники команды:*\n\n"
-        
         for member in members:
             role = "👑 Админ" if member["is_admin"] else "👤 Участник"
-            name = member["username"] or f"{member['first_name']} {member['last_name']}".strip() or f"ID: {member['id']}"
-            joined = member["joined_at"][:10] if member["joined_at"] else ""
+            name = member["username"] or f"{member['first_name']} {member['last_name']}".strip()
             text += f"• {role}: {name}\n"
-            if joined:
-                text += f"  📅 Присоединился: {joined}\n"
-            text += "\n"
         
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("⬅ Назад", callback_data=f"team_{team_id}"))
         
-        bot.edit_message_text(
-            text,
-            chat_id=call.message.chat.id,
-            message_id=call.message.id,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-    except:
+        bot.edit_message_text(text, call.message.chat.id, call.message.id, parse_mode="Markdown", reply_markup=kb)
+    except Exception as e:
         bot.answer_callback_query(call.id, "Ошибка загрузки участников")
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("team_manage_"))
 def team_manage_handler(call):
     try:
-        team_id = int(call.data.split("_")[2])
+        team_id = int(call.data.split("_")[-1])
         user_id = call.from_user.id
         
         if not is_team_admin(user_id, team_id):
-            bot.answer_callback_query(call.id, "Нет прав для управления командой")
+            bot.answer_callback_query(call.id, "Нет прав для управления")
             return
-        
+            
         team_info = get_team_info(team_id)
-        if not team_info:
-            bot.answer_callback_query(call.id, "Команда не найдена")
-            return
-        
-        text = f"""
-⚙ *Управление командой*
-
-🏢 *{team_info['name']}*
-
-👤 Создатель: {team_info['creator_first_name'] or team_info['creator_username'] or f"ID: {team_info['creator_id']}"}
-👥 Участников: {team_info['member_count']}
-
-Выберите действие:
-        """
+        text = f"⚙ *Управление командой*\n\n🏢 *{team_info['name']}*\n\nВыберите действие:"
         
         kb = team_management_menu(team_id, user_id)
-        if kb:
-            bot.edit_message_text(
-                text,
-                chat_id=call.message.chat.id,
-                message_id=call.message.id,
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
-    except:
-        bot.answer_callback_query(call.id, "Ошибка")
+        bot.edit_message_text(text, call.message.chat.id, call.message.id, parse_mode="Markdown", reply_markup=kb)
+    except Exception as e:
+        bot.answer_callback_query(call.id, "Ошибка доступа")
+
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("manage_members_"))
 def manage_members_handler(call):
@@ -1098,81 +1037,42 @@ def manage_members_handler(call):
     except:
         bot.answer_callback_query(call.id, "Ошибка")
 
+
 @bot.callback_query_handler(func=lambda c: c.data.startswith("member_"))
 def member_actions_handler(call):
     try:
         parts = call.data.split("_")
+        # Здесь ID команды — второй элемент, а ID пользователя — последний
         team_id = int(parts[1])
-        member_id = int(parts[2])
+        member_id = int(parts[-1])
         user_id = call.from_user.id
         
         if not is_team_admin(user_id, team_id):
             bot.answer_callback_query(call.id, "Нет прав")
             return
         
-        # Получаем информацию об участнике
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT u.username, u.first_name, u.last_name, tm.is_team_admin
-            FROM users u
-            JOIN team_members tm ON u.user_id = tm.user_id
-            WHERE u.user_id = ? AND tm.team_id = ?
-        ''', (member_id, team_id))
+        # Получаем данные участника из БД
+        member = get_member_info(member_id, team_id) # Рекомендую создать такую функцию
         
-        member = cursor.fetchone()
-        conn.close()
-        
-        if not member:
-            bot.answer_callback_query(call.id, "Участник не найден")
-            return
-        
-        username, first_name, last_name, is_admin = member
-        member_name = username or f"{first_name} {last_name}".strip() or f"ID: {member_id}"
-        
-        text = f"""
-👤 *Управление участником*
-
-Имя: {member_name}
-Роль: {'👑 Админ команды' if is_admin else '👤 Участник'}
-
-Выберите действие:
-        """
+        text = f"👤 *Управление участником*\n\nИмя: {member['name']}\nРоль: {member['role_text']}"
         
         kb = types.InlineKeyboardMarkup(row_width=2)
-        
-        if is_admin:
-            # Если участник админ, можно снять права (если не создатель)
+        if member['is_admin']:
             if not is_team_creator(member_id, team_id):
-                kb.add(types.InlineKeyboardButton(
-                    "⬇ Снять админа", 
-                    callback_data=f"demote_{team_id}_{member_id}"
-                ))
+                kb.add(types.InlineKeyboardButton("⬇ Снять админа", callback_data=f"demote_{team_id}_{member_id}"))
         else:
-            # Если участник не админ, можно назначить админом
-            kb.add(types.InlineKeyboardButton(
-                "⬆ Назначить админом", 
-                callback_data=f"promote_{team_id}_{member_id}"
-            ))
+            kb.add(types.InlineKeyboardButton("⬆ Назначить админом", callback_data=f"promote_{team_id}_{member_id}"))
         
-        # Удалить из команды (кроме создателя)
         if not is_team_creator(member_id, team_id):
-            kb.add(types.InlineKeyboardButton(
-                "🗑 Удалить из команды", 
-                callback_data=f"remove_{team_id}_{member_id}"
-            ))
-        
+            kb.add(types.InlineKeyboardButton("🗑 Удалить", callback_data=f"remove_{team_id}_{member_id}"))
+            
         kb.add(types.InlineKeyboardButton("⬅ Назад", callback_data=f"manage_members_{team_id}"))
         
-        bot.edit_message_text(
-            text,
-            chat_id=call.message.chat.id,
-            message_id=call.message.id,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-    except:
+        bot.edit_message_text(text, call.message.chat.id, call.message.id, parse_mode="Markdown", reply_markup=kb)
+    except Exception as e:
         bot.answer_callback_query(call.id, "Ошибка")
+
+
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("promote_"))
 def promote_member_handler(call):
