@@ -233,6 +233,122 @@ def get_recent_activity(limit=20):
         'team_name': a[4]
     } for a in activities]
 
+
+def get_user_tasks(user_id, team_id=None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    if team_id:
+        cursor.execute(
+            "SELECT task_id, task_text, is_done, priority, deadline FROM tasks WHERE user_id=? AND team_id=? ORDER BY created_at DESC",
+            (user_id, team_id)
+        )
+    else:
+        cursor.execute(
+            "SELECT task_id, task_text, is_done, priority, deadline FROM tasks WHERE user_id=? AND team_id IS NULL ORDER BY created_at DESC",
+            (user_id,)
+        )
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    tasks = []
+    for r in rows:
+        tasks.append({
+            "id": r[0],
+            "text": r[1],
+            "done": bool(r[2]),
+            "priority": r[3],
+            "deadline": r[4]
+        })
+
+    return tasks
+
+def get_team_tasks(team_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT t.task_id, t.task_text, t.is_done, t.priority, t.deadline,
+               u.user_id, u.username, u.first_name
+        FROM tasks t
+        JOIN users u ON t.user_id = u.user_id
+        WHERE t.team_id=?
+        ORDER BY t.created_at DESC
+    """, (team_id,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    return rows
+
+def delete_task(task_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM tasks WHERE task_id=?", (task_id,))
+    conn.commit()
+    conn.close()
+
+def update_task_status(task_id, done=True):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "UPDATE tasks SET is_done=? WHERE task_id=?",
+        (done, task_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+def add_task(user_id, text, team_id=None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO tasks (user_id, team_id, task_text) VALUES (?, ?, ?)",
+        (user_id, team_id, text)
+    )
+
+    conn.commit()
+    conn.close()
+
+def get_team_info(team_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT team_id, team_name, description, created_by, created_at
+        FROM teams WHERE team_id=?
+    """, (team_id,))
+
+    team = cursor.fetchone()
+
+    if not team:
+        conn.close()
+        return None
+
+    cursor.execute("SELECT COUNT(*) FROM team_members WHERE team_id=?", (team_id,))
+    member_count = cursor.fetchone()[0]
+
+    cursor.execute("SELECT username, first_name FROM users WHERE user_id=?", (team[3],))
+    creator = cursor.fetchone()
+
+    conn.close()
+
+    return {
+        "id": team[0],
+        "name": team[1],
+        "description": team[2],
+        "creator_id": team[3],
+        "creator_username": creator[0] if creator else None,
+        "creator_first_name": creator[1] if creator else None,
+        "member_count": member_count,
+        "created_at": team[4]
+    }
+
+
 def get_daily_stats(days=7):
     """Статистика по дням"""
     conn = get_db_connection()
@@ -263,6 +379,305 @@ def get_daily_stats(days=7):
     tasks_daily = cursor.fetchall()
     conn.close()
     
+def get_user_teams(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 
+            t.team_id,
+            t.team_name,
+            t.team_code,
+            tm.is_team_admin
+        FROM teams t
+        JOIN team_members tm ON t.team_id = tm.team_id
+        WHERE tm.user_id = ? AND t.is_active = TRUE
+        ORDER BY t.created_at DESC
+    """, (user_id,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    teams = []
+    for row in rows:
+        teams.append({
+            "id": row[0],
+            "name": row[1],
+            "code": row[2],
+            "is_admin": bool(row[3])
+        })
+
+    return teams
+
+def generate_team_code(length=6):
+    """Генерация кода команды"""
+    chars = string.ascii_uppercase + string.digits
+    return ''.join(random.choice(chars) for _ in range(length))
+
+
+def create_team(team_name, user_id, description=""):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # генерируем уникальный код команды
+    team_code = generate_team_code()
+
+    while True:
+        cursor.execute("SELECT 1 FROM teams WHERE team_code=?", (team_code,))
+        if cursor.fetchone() is None:
+            break
+        team_code = generate_team_code()
+
+    # создаём команду
+    cursor.execute(
+        """
+        INSERT INTO teams (team_name, team_code, created_by, description)
+        VALUES (?, ?, ?, ?)
+        """,
+        (team_name, team_code, user_id, description)
+    )
+
+    team_id = cursor.lastrowid
+
+    # добавляем создателя как участника и админа
+    cursor.execute(
+        """
+        INSERT INTO team_members (user_id, team_id, is_team_admin)
+        VALUES (?, ?, TRUE)
+        """,
+        (user_id, team_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return team_id, team_code
+
+def is_team_admin(user_id, team_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT is_team_admin
+        FROM team_members
+        WHERE user_id=? AND team_id=?
+        """,
+        (user_id, team_id)
+    )
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if row is None:
+        return False
+
+    return bool(row[0])
+
+def join_team(user_id, team_code):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # ищем команду по коду
+    cursor.execute(
+        "SELECT team_id FROM teams WHERE team_code=? AND is_active=TRUE",
+        (team_code,)
+    )
+
+    team = cursor.fetchone()
+
+    if not team:
+        conn.close()
+        return False, "Команда с таким кодом не найдена"
+
+    team_id = team[0]
+
+    # проверяем, не состоит ли пользователь уже в команде
+    cursor.execute(
+        "SELECT 1 FROM team_members WHERE user_id=? AND team_id=?",
+        (user_id, team_id)
+    )
+
+    if cursor.fetchone():
+        conn.close()
+        return False, "Вы уже состоите в этой команде"
+
+    # добавляем участника
+    cursor.execute(
+        """
+        INSERT INTO team_members (user_id, team_id, is_team_admin)
+        VALUES (?, ?, FALSE)
+        """,
+        (user_id, team_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return True, "Вы успешно присоединились к команде"
+
+def is_team_creator(user_id, team_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT created_by
+        FROM teams
+        WHERE team_id=?
+        """,
+        (team_id,)
+    )
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if row is None:
+        return False
+
+    return row[0] == user_id
+
+def get_team_members(team_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 
+            u.user_id,
+            u.username,
+            u.first_name,
+            u.last_name,
+            tm.is_team_admin
+        FROM team_members tm
+        JOIN users u ON tm.user_id = u.user_id
+        WHERE tm.team_id = ?
+        ORDER BY tm.is_team_admin DESC
+    """, (team_id,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    members = []
+
+    for r in rows:
+        members.append({
+            "id": r[0],
+            "username": r[1],
+            "first_name": r[2],
+            "last_name": r[3],
+            "is_admin": bool(r[4])
+        })
+
+    return members
+
+def get_member_info(user_id, team_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 
+            u.user_id,
+            u.username,
+            u.first_name,
+            u.last_name,
+            tm.is_team_admin
+        FROM team_members tm
+        JOIN users u ON tm.user_id = u.user_id
+        WHERE tm.user_id=? AND tm.team_id=?
+    """, (user_id, team_id))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    name = row[1] or f"{row[2] or ''} {row[3] or ''}".strip() or f"ID: {row[0]}"
+
+    return {
+        "id": row[0],
+        "name": name,
+        "is_admin": bool(row[4]),
+        "role_text": "Администратор" if row[4] else "Участник"
+    }
+
+def add_team_admin(member_id, team_id, requester_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT is_team_admin FROM team_members WHERE user_id=? AND team_id=?",
+        (requester_id, team_id)
+    )
+
+    row = cursor.fetchone()
+
+    if not row or not row[0]:
+        conn.close()
+        return False, "Нет прав"
+
+    cursor.execute(
+        "UPDATE team_members SET is_team_admin=TRUE WHERE user_id=? AND team_id=?",
+        (member_id, team_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return True, "Пользователь назначен администратором"
+
+def remove_team_admin(member_id, team_id, requester_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT is_team_admin FROM team_members WHERE user_id=? AND team_id=?",
+        (requester_id, team_id)
+    )
+
+    row = cursor.fetchone()
+
+    if not row or not row[0]:
+        conn.close()
+        return False, "Нет прав"
+
+    cursor.execute(
+        "UPDATE team_members SET is_team_admin=FALSE WHERE user_id=? AND team_id=?",
+        (member_id, team_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return True, "Права администратора сняты"
+
+def remove_team_member(member_id, team_id, requester_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT is_team_admin FROM team_members WHERE user_id=? AND team_id=?",
+        (requester_id, team_id)
+    )
+
+    row = cursor.fetchone()
+
+    if not row or not row[0]:
+        conn.close()
+        return False, "Нет прав"
+
+    cursor.execute(
+        "DELETE FROM team_members WHERE user_id=? AND team_id=?",
+        (member_id, team_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return True, "Участник удалён из команды"
+
+
+
     return {
         'users': users_daily,
         'tasks': tasks_daily
