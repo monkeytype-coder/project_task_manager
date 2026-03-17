@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 import time
 from functools import wraps
 
-# Импортируем database модуль
 import database as db
 
 load_dotenv()
@@ -20,8 +19,6 @@ if not BOT_TOKEN:
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 bot.remove_webhook()
-
-# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -32,7 +29,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Декоратор для обработки ошибок
 def handle_errors(func):
     @wraps(func)
     def wrapper(message_or_call, *args, **kwargs):
