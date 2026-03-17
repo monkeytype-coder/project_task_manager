@@ -13,7 +13,6 @@ from PyQt6.QtCore import Qt, QTimer, QDate, pyqtSignal, QPropertyAnimation, QEas
 from PyQt6.QtGui import QFont, QIcon, QColor, QPalette, QAction, QLinearGradient, QBrush, QPainter
 import database as db
 
-# Современная цветовая схема
 COLORS = {
     'primary': '#4361ee',
     'secondary': '#3f37c9',
@@ -69,7 +68,6 @@ class ModernCard(QFrame):
             }}
         """)
         
-        # Добавляем анимацию при наведении
         self.animation = QPropertyAnimation(self, b"geometry")
         self.animation.setDuration(200)
         self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -332,7 +330,6 @@ class AdminPanel(QMainWindow):
         self.setWindowTitle("НАВИГАТОР ЗАДАЧ - Админ панель")
         self.setGeometry(100, 100, 1400, 800)
         
-        # Применяем общий стиль
         self.setStyleSheet(f"""
             QMainWindow {{
                 background-color: {COLORS['gray-100']};
@@ -815,7 +812,6 @@ class AdminPanel(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setSpacing(20)
         
-        # График активности (упрощенный)
         stats_group = QGroupBox("📈 Статистика активности")
         stats_group.setStyleSheet(f"""
             QGroupBox {{
@@ -864,15 +860,12 @@ class AdminPanel(QMainWindow):
             total_tasks = db.get_total_tasks()
             completed_tasks = db.get_completed_tasks()
             
-            # Обновляем карточки статистики
             self.update_stats_cards(total_users, total_teams, total_tasks, completed_tasks)
             
-            # Детальные данные
             users = db.get_users_stats()
             teams = db.get_teams_stats()
             activities = db.get_recent_activity()
             
-            # Обновляем таблицы
             self.users_table.setRowCount(len(users))
             self.update_users_table(users)
             self.teams_table.setRowCount(len(teams))
@@ -880,7 +873,6 @@ class AdminPanel(QMainWindow):
             self.update_tasks_table()
             self.update_activity_timeline(activities)
             
-            # Статистика по дням
             daily = db.get_daily_stats()
             self.update_daily_stats(daily)
             
@@ -891,12 +883,10 @@ class AdminPanel(QMainWindow):
             
     def update_stats_cards(self, users, teams, tasks, completed):
         """Обновление карточек статистики"""
-        # Очищаем старые карточки
         for card in self.stats_cards:
             card.deleteLater()
         self.stats_cards.clear()
         
-        # Создаем новые карточки
         layout = self.stats_widget.layout()
         
         cards_data = [
@@ -1097,7 +1087,6 @@ class AdminPanel(QMainWindow):
             import shutil
             import os
             
-            # Создаем папку для бэкапов если её нет
             if not os.path.exists('backups'):
                 os.makedirs('backups')
             
@@ -1222,19 +1211,15 @@ class AdminPanel(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     
-    # Устанавливаем современный шрифт по умолчанию
     font = QFont("Segoe UI", 10)
     app.setFont(font)
     
-    # Создаем папку для бэкапов
     import os
     if not os.path.exists('backups'):
         os.makedirs('backups')
     
-    # Инициализируем БД
     db.init_db()
     
-    # Запускаем админ-панель
     window = AdminPanel()
     window.show()
     
